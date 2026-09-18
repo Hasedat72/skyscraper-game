@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Skyscraper Navigator - Balanced</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+        }
+        body {
+            background-color: #080a0f;
+            color: #c9d1d9;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        h1 {
+            font-size: 1.5rem;
+            margin-bottom: 10px;
+            letter-spacing: 1px;
+            color: #f0f6fc;
+        }
+        #game-container {
+            position: relative;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.7);
+            border: 2px solid #30363d;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        canvas {
+            display: block;
+            background: linear-gradient(to bottom, #111827, #0b0f17);
+        }
+        .instructions {
+            margin-top: 15px;
+            font-size: 0.9rem;
+            color: #8b949e;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>SKYSCRAPER NAVIGATOR // BALANCED</h1>
+    <div id="game-container">
+        <canvas id="gameCanvas" width="450" height="650"></canvas>
+    </div>
+    <div class="instructions">
+        Leertaste oder Klick zum Steuern (Sanfte Schwerkraft & Floating aktiv).
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let gameStarted = false;
+        let gameOver = false;
+        let score = 0;
+        let highScore = localStorage.getItem('skyscraper_balanced_highscore') || 0;
+
+        // Balanced Aircraft Physics (Lower gravity, gentle fall, smooth lift)
+        const player = {
+            x: 90,
+            y: 325,
+            width: 48,
+            height: 20,
+            gravity: 0.24,          // Significantly reduced gravity for slower descent
+            lift: -5.2,             // Balanced impulse
+            velocity: 0,
+            maxVelocity: 6.5,       // Lower terminal velocity for gentle floating
+            rotation: 0,            
+            
+            reset() {
+                this.y = 325;
+                this.velocity = 0;
+                this.rotation = 0;
+            },
+            
+            update() {
+                this.velocity += this.gravity;
+                if (this.velocity > this.maxVelocity) {
+                    this.velocity = this.maxVelocity;
+                }
+                
+                this.y += this.velocity;
+
+                const targetRotation = Math.min(Math.PI / 4, Math.max(-Math.PI / 6, this.velocity * 0.08));
+                this.rotation += (targetRotation - this.rotation) * 0.2;
+
+                if (this.y + this.height / 2 >= canvas.height - 40) {
+                    this.y = canvas.height - 40 - this.height / 2;
+                    triggerGameOver();
+                }
+                if (this.y <= 0) {
+                    this.y = 0;
+                    this.velocity = 0;
+                }
+            },
+
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rotation);
+
+                // Fuselage
+                ctx.fillStyle = '#e6edf3';
+                ctx.beginPath();
+                ctx.ellipse(0, 0, this.width / 2, this.height / 2, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#8b949e';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+
+                // Cockpit Windshield
+                ctx.fillStyle = '#2b3137';
+                ctx.beginPath();
+                ctx.ellipse(this.width / 4, -2, 6, 4, 0, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Main Wing
+                ctx.fillStyle = '#c9d1d9';
+                ctx.beginPath();
+                ctx.moveTo(-4, -this.height / 2);
+                ctx.lineTo(8, -this.height / 2 - 12);
+                ctx.lineTo(14, -this.height / 2);
+                ctx.closePath();
+                ctx.fill();
+
+                // Tail Stabilizer
+                ctx.fillStyle = '#f85149';
+                ctx.beginPath();
+                ctx.moveTo(-this.width / 2 + 4, 0);
+                ctx.lineTo(-this.width / 2 - 4, -10);
+                ctx.lineTo(-this.width / 2 + 10, 0);
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.restore();
+            }
+        };
+
+        let towers = [];
+        const towerWidth = 85;
+        const towerGap = 190;       // Slightly wider gap for more comfortable spacing
+        let towerTimer = 0;
+        const towerInterval = 130;  // Slower frequency between spawns
+
+        function spawnTower() {
+            const minHeight = 60;
+            const maxHeight = canvas.height - towerGap - 140;
+            const topHeight = Math.floor(Math.random() * (maxHeight - minHeight + 1)) + minHeight;
+
+            towers.push({
+                x: canvas.width,
+                top: topHeight,
+                bottom: canvas.height - topHeight - towerGap,
+                passed: false
+            });
+        }
+
+        function resetGame() {
+            towers = [];
+            score = 0;
+            player.reset();
+            gameStarted = false;
+            gameOver = false;
+            towerTimer = 0;
+        }
+
+        function triggerGameOver() {
+            gameOver = true;
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('skyscraper_balanced_highscore', highScore);
+            }
+        }
+
+        function handleInput() {
+            if (gameOver) {
+                resetGame();
+                gameStarted = true;
+                player.velocity = player.lift;
+            } else if (!gameStarted) {
+                gameStarted = true;
+                player.velocity = player.lift;
+            } else {
+                player.velocity = player.lift;
+            }
+        }
+
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'Space') {
+                e.preventDefault();
+                handleInput();
+            }
+        });
+
+        canvas.addEventListener('click', () => {
+            handleInput();
+        });
+
+        function update() {
+            if (gameStarted && !gameOver) {
+                player.update();
+
+                towerTimer++;
+                if (towerTimer >= towerInterval) {
+                    spawnTower();
+                    towerTimer = 0;
+                }
+
+                for (let i = towers.length - 1; i >= 0; i--) {
+                    towers[i].x -= 2.4; // Slightly slower scroll speed for better control response
+
+                    const pBox = {
+                        left: player.x - player.width / 2 + 4,
+                        right: player.x + player.width / 2 - 4,
+                        top: player.y - player.height / 2 + 4,
+                        bottom: player.y + player.height / 2 - 4
+                    };
+
+                    const tLeft = towers[i].x;
+                    const tRight = towers[i].x + towerWidth;
+
+                    if (pBox.right > tLeft && pBox.left < tRight) {
+                        if (pBox.top < towers[i].top || pBox.bottom > canvas.height - towers[i].bottom) {
+                            triggerGameOver();
+                        }
+                    }
+
+                    if (!towers[i].passed && towers[i].x + towerWidth < player.x) {
+                        score++;
+                        towers[i].passed = true;
+                    }
+
+                    if (towers[i].x + towerWidth < 0) {
+                        towers.splice(i, 1);
+                    }
+                }
+            }
+        }
+
+        function drawRealisticTower(x, height, isTop) {
+            const width = towerWidth;
+            
+            const grad = ctx.createLinearGradient(x, 0, x + width, 0);
+            grad.addColorStop(0, '#21262d');
+            grad.addColorStop(0.5, '#30363d');
+            grad.addColorStop(1, '#161b22');
+            
+            ctx.fillStyle = grad;
+            ctx.strokeStyle = '#484f58';
+            ctx.lineWidth = 1.5;
+
+            const yPos = isTop ? 0 : canvas.height - height;
+            
+            ctx.fillRect(x, yPos, width, height);
+            ctx.strokeRect(x, yPos, width, height);
+
+            ctx.fillStyle = '#1f242c';
+            const colWidth = 10;
+            const colGap = 8;
+            for (let cx = x + 8; cx < x + width - 10; cx += colWidth + colGap) {
+                ctx.fillRect(cx, yPos, colWidth, height);
+            }
+
+            ctx.fillStyle = 'rgba(230, 237, 243, 0.25)';
+            for (let wy = yPos + 12; wy < yPos + height - 12; wy += 18) {
+                for (let wx = x + 6; wx < x + width - 6; wx += 12) {
+                    if ((wx + wy) % 5 !== 0) {
+                        ctx.fillRect(wx, wy, 6, 9);
+                    }
+                }
+            }
+
+            if (isTop) {
+                ctx.strokeStyle = '#8b949e';
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(x + width / 2, 0);
+                ctx.lineTo(x + width / 2, -25);
+                ctx.stroke();
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            ctx.fillStyle = '#161b22';
+            ctx.fillRect(0, canvas.height - 40, canvas.width, 40);
+
+            towers.forEach(tower => {
+                drawRealisticTower(tower.x, tower.top, true);
+                drawRealisticTower(tower.x, tower.bottom, false);
+            });
+
+            player.draw();
+
+            ctx.fillStyle = '#f0f6fc';
+            ctx.font = 'bold 22px sans-serif';
+            ctx.textAlign = 'center';
+
+            if (!gameStarted && !gameOver) {
+                ctx.fillText('KLICKEN ODER LEERTASTE ZUM STARTEN', canvas.width / 2, canvas.height / 2 - 30);
+            } else if (gameOver) {
+                ctx.fillStyle = 'rgba(8, 10, 15, 0.85)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                ctx.fillStyle = '#f85149';
+                ctx.font = 'bold 28px sans-serif';
+                ctx.fillText('MISSION BEENDET', canvas.width / 2, canvas.height / 2 - 40);
+
+                ctx.fillStyle = '#f0f6fc';
+                ctx.font = '18px sans-serif';
+                ctx.fillText(`Erreichte Sektoren: ${score}`, canvas.width / 2, canvas.height / 2 + 5);
+                ctx.fillText(`Bestwert: ${highScore}`, canvas.width / 2, canvas.height / 2 + 35);
+                
+                ctx.font = '14px sans-serif';
+                ctx.fillStyle = '#8b949e';
+                ctx.fillText('Klicken zum Neustarten', canvas.width / 2, canvas.height / 2 + 80);
+            } else {
+                ctx.fillStyle = '#f0f6fc';
+                ctx.font = 'bold 24px sans-serif';
+                ctx.fillText(score, canvas.width / 2, 50);
+            }
+        }
+
+        function loop() {
+            update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        loop();
+    </script>
+</body>
+</html>
